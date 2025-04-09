@@ -738,6 +738,18 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = answer.user.id
     user_name = answer.user.name
     
+    # Ensure player_scores dictionary exists in user_data
+    if "player_scores" not in context.user_data:
+        context.user_data["player_scores"] = {}
+    
+    # Initialize this player in player_scores if not already there
+    if str(user_id) not in context.user_data["player_scores"]:
+        context.user_data["player_scores"][str(user_id)] = {
+            "name": user_name,
+            "score": 0,
+            "time_taken": 0
+        }
+        
     # Get the selected option
     selected_option = answer.option_ids[0] if answer.option_ids else None
     
@@ -746,6 +758,10 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     # Check if the answer is correct
     is_correct = (selected_option == correct_option)
+    
+    # Update score in player_scores if correct
+    if is_correct:
+        context.user_data["player_scores"][str(user_id)]["score"] += 1
     
     # Load settings to check if negative marking is enabled
     settings = load_settings()
@@ -764,7 +780,7 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if is_correct:
         feedback_message = "✅ That's right!"
     else:
-        feedback_message = "❌ Not quite..."
+        feedback_message = "❌ Sorry, that's not correct."
     
     # Add point information based on negative marking settings
     if negative_marking:
