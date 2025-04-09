@@ -2329,11 +2329,15 @@ async def show_final_results(context: ContextTypes.DEFAULT_TYPE):
     
     # Add each player to the leaderboard with appropriate medal
     for i, player in enumerate(leaderboard, 1):
-        name = player['name']
-        score = player['score']
+        # Ensure we get the name with a fallback if it's missing
+        name = player.get('name', 'Unknown')
+        if name == 'Unknown' and 'name' in player:
+            name = player['name']
+            
+        score = player.get('score', 0)
         
         # Format time nicely
-        time_sec = round(player['time_taken'], 1)
+        time_sec = round(player.get('time_taken', 0), 1)
         minutes = int(time_sec // 60)
         seconds = time_sec % 60
         time_str = f"{minutes} min {int(seconds)} sec" if minutes > 0 else f"{time_sec} sec"
@@ -2344,12 +2348,12 @@ async def show_final_results(context: ContextTypes.DEFAULT_TYPE):
         # Add this player's entry to the leaderboard
         text += f"{medal} {name} – {score} points ({time_str})\n"
     
-    # Add congratulations message at the end
-    text += "\n🏆 Congratulations to the winner!"
+    # Add congratulations message at the end - move to beginning of results
+    if leaderboard:
+        text = text.replace("questions answered\n\n", "questions answered\n\n🏆 Congratulations to the winner!\n\n")
     
     # Send the message
     await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
-
 
 
 
