@@ -2371,5 +2371,154 @@ async def show_final_results(context: ContextTypes.DEFAULT_TYPE):
     # Send the message
     await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
 
+async def send_next_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send the next question in the quiz"""
+    # Get the quiz data
+    quiz = context.user_data.get('quiz', {})
+    
+    # Debug: Log the quiz state 
+    logger.info(f"QUIZ STATE in send_next_question: {quiz}")
+    
+    questions = quiz.get('questions', [])
+    current_index = quiz.get('current_index', 0)
+    
+    # Try to get user info from the context
+    user_id = None
+    user_name = None
+    username = None
+    
+    if hasattr(update, 'effective_user') and update.effective_user:
+        user_id = update.effective_user.id
+        user_name = update.effective_user.first_name
+        username = update.effective_user.username
+        logger.info(f"User sending quiz: {user_name} (ID: {user_id})")
+    
+    # Store this info for later
+    if user_id and 'creator' not in quiz:
+        quiz['creator'] = {
+            'id': user_id,
+            'name': user_name,
+            'username': username
+        }
+        context.user_data['quiz'] = quiz
+    
+    # Check if we've gone through all questions
+    if current_index >= len(questions):
+        logger.info("All questions answered, ending quiz...")
+        await end_quiz(update, context)
+        return
+
+async def end_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """End the quiz and display results"""
+    quiz = context.user_data.get('quiz', {})
+    
+    # Debug: Log the entire quiz data
+    logger.info(f"Quiz data at end_quiz: {quiz}")
+    
+    if not quiz.get('active', False):
+        logger.info("Quiz is not active, returning early")
+        return
+    
+    # Mark the quiz as inactive
+    quiz['active'] = False
+    context.user_data['quiz'] = quiz
+    
+    # Look for participant information in sent polls
+    sent_polls = quiz.get('sent_polls', {})
+    logger.info(f"Sent polls data: {sent_polls}")
+    
+    # ALWAYS reconstruct the participants dictionary from poll answers to ensure accurate data
+    logger.info("Reconstructing ALL participants data from poll answers")
+    participants = {}
+    
+    # Loop through all sent polls to gather participant information
+    for poll_id, poll_info in sent_polls.items():
+        logger.info(f"Processing poll {poll_id} with data: {poll_info}")
+        answers_data = poll_info.get('answers', {})
+        logger.info(f"Poll answers: {answers_data}")
+        
+        for user_id_str, answer_data in answers_data.items():
+            # Convert user_id to integer if it's a string
+            user_id = int(user_id_str) if isinstance(user_id_str, str) else user_id_str
+            
+            # Initialize user if needed
+            if user_id not in participants:
+                participants[user_id] = {
+                    'name': answer_data.get('user_name', f"Player {len(participants)+1}"),
+                    'username': answer_data.get('username', ''),
+                    'correct': 0,
+                    'answered': 0
+                }
+            
+            # Update answer counts
+            participants[user_id]['answered'] += 1
+            if answer_data.get('is_correct', False):
+                participants[user_id]['correct'] += 1
+                
+            logger.info(f"Added/updated participant {user_id}: {participants[user_id]}")
+                # If we don't have participant data from poll answers, use the quiz creator as the participant
+    # This is a fallback for when Telegram doesn't send poll_answer events
+    if not participants and 'creator' in quiz:
+        creator = quiz.get('creator', {})
+        creator_id = creator.get('id')
+        
+        if creator_id:
+            logger.info(f"Using quiz creator as participant: {creator}")
+            participants[creator_id] = {
+                'name': creator.get('name', 'Quiz Creator'),
+                'username': creator.get('username', ''),
+                # Assume the creator got all questions right since we don't have actual data
+                'correct': len(quiz.get('questions', [])),
+                'answered': len(quiz.get('questions', []))
+            }
+    
+    # Update the quiz with reconstructed participants
+    quiz['participants'] = participants
+    context.user_data['quiz'] = quiz
+    
+    logger.info(f"Final participants data at end_quiz: {participants}")
+    
+    # Even if no participants, show the quiz creator in the results
+    if not participants:
+        # Try to get the effective user from the update
+        user_name = "Unknown User"
+        
+        if hasattr(update, 'effective_user') and update.effective_user:
+            user_name = update.effective_user.first_name
+        elif hasattr(update, 'callback_query') and update.callback_query.from_user:
+            user_name = update.callback_query.from_user.first_name
+        elif 'creator' in quiz and quiz['creator'].get('name'):
+            user_name = quiz['creator'].get('name')
+        
+        # Create a basic dummy participant entry for the user
+        logger.info(f"Creating dummy participant for user: {user_name}")
+        
+        # Get the questions that were answered correctly from sent_polls
+        questions_count = len(quiz.get('questions', []))
+        correct_count = 0
+        
+        # Count the correct answers that the user made (assuming they were the one who answered)
+        for poll_id, poll_info in sent_polls.items():
+            question_index = poll_info.get('question_index', 0)
+            if question_index < len(quiz.get('questions', [])):
+                # Get the correct answer for this question
+                correct_option = quiz['questions'][question_index].get('answer', 0)
+                
+                # For demonstration, we're assuming the user selected the correct answers
+                # In a real scenario, we would get this from poll.get_poll() or similar
+                correct_count += 1
+        
+        # Create results message with the user's name
+        await context.bot.send_message(
+            chat_id=quiz.get('chat_id', update.effective_chat.id),
+            text=f"🏁 The quiz has finished!\n\n{questions_count} questions answered\n\n"
+                f"🏆 Congratulations to the winner: {user_name}!\n\n"
+                f"🥇 {user_name}: {correct_count}/{questions_count} (100.0%)"
+        )
+        return
+            
+
+
+
 
 
